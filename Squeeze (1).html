@@ -1,0 +1,944 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Squeeze</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,500..800&family=Hanken+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: wordmark and trust line on top; drop zone and file list on the left, a sticky settings panel on the right. Each file row carries a gauge showing how far it was squeezed. */
+:root{
+  --bg:#0d0f1e; --surface:#151833; --surface2:#1d2142; --line:#2b305c;
+  --fg:#edecf8; --muted:#9a9dc4;
+  --accent:#ffb81c; --accent-ink:#1a1300; --accent-text:#ffb81c;
+  --good:#3ddc97; --warn:#ff8a5c; --bad:#ff5d73;
+  --font-display:"Bricolage Grotesque","Arial Narrow",system-ui,sans-serif;
+  --font-body:"Hanken Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#f4f3fa; --surface:#ffffff; --surface2:#ebe9f7; --line:#d5d3ea;
+    --fg:#15173a; --muted:#5b5e88;
+    --accent:#f2a900; --accent-ink:#1a1300; --accent-text:#8a5a00;
+    --good:#0e8f5b; --warn:#c2410c; --bad:#c81e3a;
+    color-scheme:light;
+  }
+}
+:root[data-theme="light"]{
+  --bg:#f4f3fa; --surface:#ffffff; --surface2:#ebe9f7; --line:#d5d3ea;
+  --fg:#15173a; --muted:#5b5e88;
+  --accent:#f2a900; --accent-ink:#1a1300; --accent-text:#8a5a00;
+  --good:#0e8f5b; --warn:#c2410c; --bad:#c81e3a;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{
+  background:var(--bg); color:var(--fg);
+  font-family:var(--font-body); font-size:15px; line-height:1.5;
+  padding-block:28px 56px;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));
+  padding-right:max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap{max-width:1120px;margin:0 auto;display:grid;gap:22px}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* header */
+.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px}
+.brand h1{margin:0;font-family:var(--font-display);font-weight:800;font-stretch:75%;font-size:clamp(44px,8vw,76px);line-height:.9;letter-spacing:-.02em}
+.brand h1 span{color:var(--accent)}
+.lede{margin:10px 0 0;max-width:52ch;color:var(--muted);text-wrap:balance}
+.trust{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--line);border-radius:999px;background:var(--surface);font-size:13px;color:var(--muted)}
+.trust i{width:8px;height:8px;border-radius:50%;background:var(--good);display:block}
+
+/* layout */
+.grid{display:grid;gap:18px 22px;grid-template-columns:minmax(0,1.45fr) minmax(300px,1fr);grid-template-areas:"drop panel" "list panel";align-items:start}
+.drop{grid-area:drop}.list-area{grid-area:list}.panel{grid-area:panel;position:sticky;top:16px}
+@media (max-width:860px){.grid{grid-template-columns:minmax(0,1fr);grid-template-areas:"drop" "panel" "list"}.panel{position:static}}
+
+.drop{display:grid;place-items:center;gap:6px;text-align:center;padding:34px 18px;border:1.5px dashed var(--line);border-radius:14px;background:var(--surface);cursor:pointer;transition:border-color .15s,background .15s}
+.drop:hover,.drop.over{border-color:var(--accent);background:var(--surface2)}
+.drop strong{font-family:var(--font-display);font-size:24px;font-weight:700;font-stretch:80%}
+.drop small{color:var(--muted)}
+.drop .go{margin-top:8px;padding:9px 18px;border-radius:8px;border:0;background:var(--accent);color:var(--accent-ink);font-weight:600;cursor:pointer}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* list */
+.list-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px;min-height:32px;margin-bottom:10px}
+.list-head h2,.panel h2{margin:0;font-family:var(--font-display);font-size:18px;font-weight:700;font-stretch:85%}
+.summary{color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+.summary b{color:var(--good);font-weight:600}
+ul.files{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.empty{padding:22px 16px;border:1px solid var(--line);border-radius:12px;color:var(--muted);background:var(--surface);font-size:14px}
+.row{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:6px 14px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.thumb{grid-row:span 2;width:64px;height:64px;border-radius:8px;border:1px solid var(--line);background:var(--surface2);overflow:hidden;padding:0;cursor:pointer;display:grid;place-items:center;font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+.thumb img,.thumb canvas{width:100%;height:100%;object-fit:cover;display:block}
+.meta{min-width:0}
+.name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sub{font-size:12.5px;color:var(--muted);font-family:var(--font-mono);overflow-wrap:anywhere}
+.nums{display:flex;align-items:baseline;gap:8px;font-family:var(--font-mono);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.nums .from{color:var(--muted);text-decoration:line-through;text-decoration-thickness:1px}
+.nums .to{font-weight:500}
+.nums .pct{color:var(--good);font-weight:500}
+.nums .pct.zero{color:var(--muted)}
+.acts{display:flex;gap:6px;justify-content:flex-end}
+.under{grid-column:2 / -1;display:grid;gap:6px;min-width:0}
+.gauge{height:6px;border-radius:99px;background:var(--surface2);overflow:hidden;position:relative}
+.gauge i{position:absolute;inset:0 auto 0 0;width:0;background:var(--accent);border-radius:99px;transition:width .3s}
+.status{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.status[data-tone="good"]{color:var(--good)}
+.status[data-tone="warn"]{color:var(--warn)}
+.status[data-tone="bad"]{color:var(--bad)}
+.btn{padding:7px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface2);cursor:pointer;font-size:13.5px;font-weight:500}
+.btn:hover:not(:disabled){border-color:var(--accent)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.prime{background:var(--accent);color:var(--accent-ink);border-color:transparent;font-weight:600}
+.btn.ghost{background:transparent}
+@media (max-width:560px){
+  .row{grid-template-columns:52px minmax(0,1fr)}
+  .thumb{width:52px;height:52px}
+  .nums,.acts{grid-column:1 / -1;justify-content:space-between}
+  .under{grid-column:1 / -1}
+}
+
+/* panel */
+.panel{padding:18px;border:1px solid var(--line);border-radius:14px;background:var(--surface);display:grid;gap:18px}
+.panel .sub2{margin:2px 0 0;font-size:13px;color:var(--muted)}
+fieldset{border:0;margin:0;padding:0;display:grid;gap:10px;min-width:0}
+legend{padding:0;margin-bottom:2px;font-family:var(--font-mono);font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:6px 11px;border-radius:999px;border:1px solid var(--line);background:var(--surface2);font-size:13px;cursor:pointer}
+.chip:hover{border-color:var(--accent)}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--surface2)}
+.seg label{position:relative;display:block;text-align:center;cursor:pointer}
+.seg span{display:block;padding:8px 6px;font-size:13.5px;color:var(--muted)}
+.seg input:checked + span{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.seg input:focus-visible + span{outline:2px solid var(--fg);outline-offset:-3px}
+.line{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.field{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface2);min-width:0}
+.field.num{width:96px;font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.field.wide{flex:1 1 140px}
+.x{color:var(--muted)}
+.hint{margin:0;font-size:12.5px;color:var(--muted)}
+.check{display:flex;gap:9px;align-items:flex-start;font-size:14px;cursor:pointer}
+.check input{margin-top:4px;accent-color:var(--accent)}
+.check small{display:block;color:var(--muted);font-size:12.5px}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.qv{font-family:var(--font-mono);font-size:13px;color:var(--accent-text)}
+.panel .btn.prime{padding:12px 16px;font-size:16px;font-family:var(--font-display);font-weight:700;font-stretch:85%}
+
+/* preview + toast */
+.ov{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:20px;background:rgba(5,6,16,.82)}
+.ov .card{max-width:min(960px,100%);max-height:100%;display:grid;gap:10px;padding:14px;border-radius:14px;background:var(--surface);border:1px solid var(--line);overflow:auto}
+.ov img,.ov canvas{max-width:100%;max-height:72vh;margin:0 auto;display:block;background:#fff;border-radius:6px}
+.ov .cap{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-family:var(--font-mono);font-size:12.5px;color:var(--muted)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom, 0px));z-index:60;max-width:min(520px,calc(100% - 32px));padding:10px 16px;border-radius:10px;background:var(--fg);color:var(--bg);font-size:14px;box-shadow:0 8px 30px rgba(0,0,0,.35)}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>Squeeze<span>.</span></h1>
+      <p class="lede">Shrink photos, scans and PDFs to the size and dimensions a form or portal asks for.</p>
+    </div>
+    <div class="trust"><i></i>Runs on this device. Nothing is uploaded.</div>
+  </header>
+
+  <div class="grid">
+    <label class="drop" id="drop" for="picker">
+      <strong>Drop files here</strong>
+      <small>JPG, PNG, WebP, AVIF, GIF, BMP and PDF. You can also paste an image.</small>
+      <span class="go">Choose files</span>
+    </label>
+    <input id="picker" class="vh" type="file" multiple accept="image/*,.pdf,application/pdf">
+
+    <aside class="panel" aria-label="Settings">
+      <div>
+        <h2>Settings</h2>
+        <p class="sub2">Applied to every file in the list.</p>
+      </div>
+
+      <fieldset>
+        <legend>Quick presets</legend>
+        <div class="chips" id="presets">
+          <button class="chip" type="button" data-p="photo">Form photo 200×230 · 50 KB</button>
+          <button class="chip" type="button" data-p="sign">Signature 140×60 · 20 KB</button>
+          <button class="chip" type="button" data-p="chat">Chat share · 300 KB</button>
+          <button class="chip" type="button" data-p="portal">Portal upload · 200 KB</button>
+          <button class="chip" type="button" data-p="mail">Email · 1 MB</button>
+        </div>
+        <p class="hint">Starting points only. Check the limits your form or portal states.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Target</legend>
+        <div class="seg" role="radiogroup" aria-label="Compression target">
+          <label><input class="vh" type="radio" name="mode" value="size" checked><span>Target size</span></label>
+          <label><input class="vh" type="radio" name="mode" value="quality"><span>Quality</span></label>
+        </div>
+        <div class="line" id="sizeRow">
+          <label class="vh" for="tMin">Minimum file size</label>
+          <span class="x">From</span>
+          <input id="tMin" class="field num" type="number" min="0" step="any" placeholder="none" inputmode="decimal">
+          <label class="vh" for="tVal">Maximum file size</label>
+          <span class="x">to</span>
+          <input id="tVal" class="field num" type="number" min="0" step="any" value="200" inputmode="decimal">
+          <label class="vh" for="tUnit">Unit</label>
+          <select id="tUnit" class="field"><option>KB</option><option>MB</option></select>
+          <span class="hint" style="flex-basis:100%">Each file lands inside this range, close to the maximum. A file that is already in range is left alone. Leave one box empty for a one-sided limit.</span>
+          <label class="check" style="flex-basis:100%"><input id="pad" type="checkbox" checked><span>Enlarge small files to reach the minimum<small>Raises quality first. If that is not enough, adds harmless filler data. It does not add picture detail.</small></span></label>
+        </div>
+        <div id="qualRow" hidden>
+          <div class="line"><label for="qual">Quality</label><span class="qv" id="qv">75</span></div>
+          <input id="qual" type="range" min="10" max="95" value="75">
+          <p class="hint">Higher keeps more detail and gives bigger files.</p>
+        </div>
+      </fieldset>
+
+      <fieldset data-for="image">
+        <legend>Image dimensions</legend>
+        <div class="line">
+          <label class="vh" for="dimW">Width in pixels</label>
+          <input id="dimW" class="field num" type="number" min="1" placeholder="auto" inputmode="numeric">
+          <span class="x">×</span>
+          <label class="vh" for="dimH">Height in pixels</label>
+          <input id="dimH" class="field num" type="number" min="1" placeholder="auto" inputmode="numeric">
+          <span class="x">px</span>
+        </div>
+        <div class="seg" role="radiogroup" aria-label="How to fit">
+          <label><input class="vh" type="radio" name="fit" value="inside" checked><span>Fit inside</span></label>
+          <label><input class="vh" type="radio" name="fit" value="cover"><span>Fill &amp; crop</span></label>
+          <label><input class="vh" type="radio" name="fit" value="stretch"><span>Stretch</span></label>
+        </div>
+        <p class="hint">Fill &amp; crop and Stretch give exactly the width and height above. Leave a box empty to keep proportions, or both empty to keep the original size.</p>
+        <label class="check"><input id="noUp" type="checkbox" checked><span>Don't enlarge small images<small>Only applies to Fit inside.</small></span></label>
+        <label class="check"><input id="shrink" type="checkbox" checked><span>Reduce dimensions if needed to reach the size<small>Ignored when you ask for an exact width and height.</small></span></label>
+        <div class="line">
+          <label for="fmt">Save as</label>
+          <select id="fmt" class="field wide">
+            <option value="auto">Automatic (JPEG, WebP if transparent)</option>
+            <option value="jpeg">JPEG</option>
+            <option value="webp">WebP</option>
+            <option value="png">PNG (lossless)</option>
+          </select>
+        </div>
+      </fieldset>
+
+      <fieldset data-for="pdf">
+        <legend>PDF</legend>
+        <div class="line">
+          <label for="pdfMode">Method</label>
+          <select id="pdfMode" class="field wide">
+            <option value="auto">Automatic</option>
+            <option value="text">Keep text selectable (light)</option>
+            <option value="raster">Maximum (pages become images)</option>
+          </select>
+        </div>
+        <div class="line">
+          <label for="pageSize">Page size</label>
+          <select id="pageSize" class="field wide">
+            <option value="orig">Keep original</option>
+            <option value="a4">A4</option>
+            <option value="a5">A5</option>
+            <option value="a3">A3</option>
+            <option value="letter">Letter</option>
+          </select>
+        </div>
+        <p class="hint">Automatic re-saves without touching the text first. If that misses the target, pages are redrawn as images. A different page size always redraws the pages.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Both</legend>
+        <label class="check"><input id="gray" type="checkbox"><span>Convert to grayscale<small>Smaller files for scans and documents.</small></span></label>
+        <p class="hint">Re-encoding removes EXIF data, including GPS location.</p>
+      </fieldset>
+
+      <button class="btn prime" id="run" type="button" disabled>Squeeze files</button>
+    </aside>
+
+    <section class="list-area" aria-live="polite">
+      <div class="list-head">
+        <h2>Files</h2>
+        <span class="summary" id="summary"></span>
+        <div class="acts">
+          <button class="btn ghost" id="clear" type="button" hidden>Clear all</button>
+          <button class="btn" id="zip" type="button" hidden>Save all as ZIP</button>
+        </div>
+      </div>
+      <div class="empty" id="empty">No files yet. Add a few and set a target on the right.</div>
+      <ul class="files" id="files"></ul>
+    </section>
+  </div>
+</div>
+
+<div class="ov" id="ov" hidden>
+  <div class="card">
+    <div id="ovBody"></div>
+    <div class="cap"><span id="ovCap"></span><button class="btn" id="ovClose" type="button">Close</button></div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script>
+(function(){
+"use strict";
+var $=function(s){return document.querySelector(s)};
+var $$=function(s){return Array.prototype.slice.call(document.querySelectorAll(s))};
+var tick=function(){return new Promise(function(r){setTimeout(r,0)})};
+var esc=function(s){return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})};
+function fmt(n){return n<1024?n+" B":n<1048576?(n/1024).toFixed(n<10240?1:0)+" KB":(n/1048576).toFixed(2)+" MB"}
+
+var hasPdfJs=typeof window.pdfjsLib!=="undefined";
+var hasPdfLib=typeof window.PDFLib!=="undefined";
+if(hasPdfJs){try{pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"}catch(e){}}
+
+var downloads=null;
+try{
+  if(window.claude&&window.claude.use){
+    window.claude.use("downloads").then(function(d){downloads=d}).catch(function(){});
+  }
+}catch(e){}
+
+var supportsWebp=(function(){try{return document.createElement("canvas").toDataURL("image/webp").indexOf("data:image/webp")===0}catch(e){return false}})();
+
+var state={items:[],busy:false,seq:0};
+
+/* ---------- toast ---------- */
+var toastT=0;
+function toast(msg){var t=$("#toast");t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(function(){t.hidden=true},4200)}
+
+/* ---------- settings ---------- */
+function readSettings(){
+  var mode=$("input[name=mode]:checked").value;
+  var unit=$("#tUnit").value, tv=parseFloat($("#tVal").value), tm=parseFloat($("#tMin").value);
+  var mul=unit==="MB"?1048576:1024;
+  var target=0,min=0;
+  if(mode==="size"){
+    var hasMax=tv>0,hasMin=tm>0;
+    if(!hasMax&&!hasMin){toast("Enter a minimum size, a maximum size, or both.");return null}
+    target=hasMax?Math.floor(tv*mul*0.985):Infinity;
+    min=hasMin?Math.ceil(tm*mul*1.015):0;
+    if(hasMax&&min>=target){toast("The minimum has to be clearly smaller than the maximum.");return null}
+  }
+  return {
+    mode:mode,target:target,min:min,pad:$("#pad").checked,quality:(+$("#qual").value)/100,
+    W:parseInt($("#dimW").value,10)||0,H:parseInt($("#dimH").value,10)||0,
+    fit:$("input[name=fit]:checked").value,noUp:$("#noUp").checked,shrink:$("#shrink").checked,
+    format:$("#fmt").value,gray:$("#gray").checked,
+    pdfMode:$("#pdfMode").value,pageSize:$("#pageSize").value
+  };
+}
+function syncSettingsUI(){
+  var mode=$("input[name=mode]:checked").value;
+  $("#sizeRow").hidden=mode!=="size";
+  $("#qualRow").hidden=mode!=="quality";
+  $("#qv").textContent=$("#qual").value;
+  var hasImg=state.items.some(function(i){return i.kind==="image"});
+  var hasPdf=state.items.some(function(i){return i.kind==="pdf"});
+  var none=!hasImg&&!hasPdf;
+  $$("fieldset[data-for=image]").forEach(function(f){f.hidden=!(none||hasImg)});
+  $$("fieldset[data-for=pdf]").forEach(function(f){f.hidden=!(none||hasPdf)});
+}
+$$("input[name=mode]").forEach(function(r){r.addEventListener("change",syncSettingsUI)});
+$("#qual").addEventListener("input",syncSettingsUI);
+
+var PRESETS={
+  photo:{mode:"size",val:50,unit:"KB",W:200,H:230,fit:"cover",fmt:"jpeg"},
+  sign:{mode:"size",val:20,unit:"KB",W:140,H:60,fit:"inside",fmt:"jpeg"},
+  chat:{mode:"size",val:300,unit:"KB",W:1280,H:1280,fit:"inside",fmt:"auto"},
+  portal:{mode:"size",val:200,unit:"KB",W:"",H:"",fit:"inside",fmt:"auto"},
+  mail:{mode:"size",val:1,unit:"MB",W:"",H:"",fit:"inside",fmt:"auto"}
+};
+$("#presets").addEventListener("click",function(e){
+  var b=e.target.closest("[data-p]");if(!b)return;
+  var p=PRESETS[b.getAttribute("data-p")];
+  document.querySelector("input[name=mode][value=size]").checked=true;
+  $("#tVal").value=p.val;$("#tMin").value="";$("#tUnit").value=p.unit;
+  $("#dimW").value=p.W;$("#dimH").value=p.H;
+  document.querySelector("input[name=fit][value="+p.fit+"]").checked=true;
+  $("#fmt").value=p.fmt;
+  syncSettingsUI();
+  toast("Preset applied. Adjust anything you like, then press Squeeze.");
+});
+
+/* ---------- file intake ---------- */
+function kindOf(f){
+  var n=f.name.toLowerCase();
+  if(f.type==="application/pdf"||/\.pdf$/.test(n))return "pdf";
+  if(/^image\/(jpeg|png|webp|avif|gif|bmp)$/.test(f.type)||/\.(jpe?g|png|webp|avif|gif|bmp)$/.test(n))return "image";
+  return "bad";
+}
+function badReason(f){
+  var n=f.name.toLowerCase();
+  if(/\.(heic|heif)$/.test(n)||/heic|heif/.test(f.type))return "HEIC photos can't be read by most browsers. Export as JPG first.";
+  if(/\.svg$/.test(n)||f.type==="image/svg+xml")return "SVG is already vector, so there is nothing to squeeze.";
+  return "Not supported. Squeeze handles JPG, PNG, WebP, AVIF, GIF, BMP and PDF.";
+}
+function addFiles(list){
+  Array.prototype.forEach.call(list,function(f){
+    var it={id:++state.seq,file:f,kind:kindOf(f),status:"ready",result:null,info:null,error:""};
+    if(it.kind==="bad"){it.status="bad";it.error=badReason(f)}
+    state.items.push(it);
+    buildRow(it);
+    if(it.kind==="image")loadImageInfo(it);
+    if(it.kind==="pdf")loadPdfInfo(it);
+  });
+  refresh();
+}
+function loadImageInfo(it){
+  var url=URL.createObjectURL(it.file);it.thumbUrl=url;
+  var im=new Image();
+  im.onload=function(){
+    it.info={w:im.naturalWidth,h:im.naturalHeight};
+    it.thumb.innerHTML="";var t=document.createElement("img");t.src=url;t.alt="";it.thumb.appendChild(t);
+    updateRow(it);
+  };
+  im.onerror=function(){
+    it.kind="bad";it.status="bad";it.error="This browser can't read that image. Try exporting it as JPG or PNG.";
+    updateRow(it);refresh();
+  };
+  im.src=url;
+}
+async function loadPdfInfo(it){
+  if(!hasPdfJs){it.info={pages:0};updateRow(it);return}
+  try{
+    var buf=await it.file.arrayBuffer();
+    var pdf=await pdfjsLib.getDocument({data:new Uint8Array(buf),isEvalSupported:false,useSystemFonts:true}).promise;
+    var page=await pdf.getPage(1);var vp=page.getViewport({scale:1});
+    it.info={pages:pdf.numPages,w:vp.width,h:vp.height};
+    var sc=128/Math.max(vp.width,vp.height);var v2=page.getViewport({scale:sc});
+    var c=document.createElement("canvas");c.width=Math.ceil(v2.width);c.height=Math.ceil(v2.height);
+    var g=c.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,c.width,c.height);
+    await page.render({canvasContext:g,viewport:v2}).promise;
+    it.thumb.innerHTML="";it.thumb.appendChild(c);
+    pdf.destroy();
+  }catch(e){
+    if(e&&e.name==="PasswordException"){it.status="bad";it.kind="bad";it.error="This PDF is password protected. Remove the password first."}
+    else{it.info={pages:0}}
+  }
+  updateRow(it);refresh();
+}
+
+/* ---------- rows ---------- */
+function buildRow(it){
+  var li=document.createElement("li");li.className="row";
+  li.innerHTML=
+    '<button class="thumb" type="button" aria-label="Preview"></button>'+
+    '<div class="meta"><div class="name"></div><div class="sub"></div></div>'+
+    '<div class="nums"></div>'+
+    '<div class="under"><div class="gauge"><i></i></div><div class="status"></div></div>'+
+    '<div class="acts" style="grid-column:3;grid-row:2"><button class="btn save" type="button" hidden>Save</button><button class="btn ghost rm" type="button" aria-label="Remove file">Remove</button></div>';
+  it.el=li;it.thumb=li.querySelector(".thumb");
+  it.thumb.textContent=it.kind==="pdf"?"PDF":it.kind==="image"?"IMG":"?";
+  li.querySelector(".name").textContent=it.file.name;
+  li.querySelector(".save").addEventListener("click",function(){saveItem(it)});
+  li.querySelector(".rm").addEventListener("click",function(){removeItem(it)});
+  it.thumb.addEventListener("click",function(){openPreview(it)});
+  $("#files").appendChild(li);
+  updateRow(it);
+}
+function updateRow(it){
+  var li=it.el;if(!li)return;
+  var sub=[];
+  if(it.kind==="image"&&it.info)sub.push(it.info.w+"×"+it.info.h+" px");
+  if(it.kind==="pdf"&&it.info&&it.info.pages)sub.push(it.info.pages+(it.info.pages===1?" page":" pages"));
+  var r=it.result;
+  if(r&&r.w&&it.kind==="image")sub.push("now "+r.w+"×"+r.h+" px");
+  li.querySelector(".sub").textContent=sub.join(" · ")||(it.kind==="bad"?"":"reading…");
+  var nums=li.querySelector(".nums");
+  var st=li.querySelector(".status"),gi=li.querySelector(".gauge i");
+  var save=li.querySelector(".save");
+  save.hidden=!(it.status==="done"&&r);
+  nums.innerHTML="";
+  var orig=it.file.size;
+  if(it.status==="done"&&r){
+    var out=r.blob.size,pct=Math.round((1-out/orig)*100);
+    nums.innerHTML='<span class="from">'+fmt(orig)+'</span><span class="to">'+fmt(out)+'</span><span class="pct'+(pct<=0?" zero":"")+'">'+(pct>0?"−"+pct+"%":"0%")+'</span>';
+    gi.style.width=Math.max(2,Math.min(100,out/orig*100))+"%";
+    st.textContent=r.note;st.setAttribute("data-tone",r.tone||"");
+  }else if(it.status==="working"){
+    nums.innerHTML='<span class="to">'+fmt(orig)+'</span>';
+    gi.style.width=Math.round((it.frac||0.04)*100)+"%";
+    st.textContent=it.msg||"Working…";st.setAttribute("data-tone","");
+  }else if(it.status==="error"||it.status==="bad"){
+    nums.innerHTML='<span class="to">'+fmt(orig)+'</span>';
+    gi.style.width="0";st.textContent=it.error;st.setAttribute("data-tone","bad");
+  }else{
+    nums.innerHTML='<span class="to">'+fmt(orig)+'</span>';
+    gi.style.width="0";st.textContent="Ready";st.setAttribute("data-tone","");
+  }
+}
+function removeItem(it){
+  if(state.busy)return;
+  if(it.thumbUrl)URL.revokeObjectURL(it.thumbUrl);
+  state.items=state.items.filter(function(x){return x!==it});
+  it.el.remove();refresh();
+}
+$("#clear").addEventListener("click",function(){
+  if(state.busy)return;
+  state.items.slice().forEach(function(it){if(it.thumbUrl)URL.revokeObjectURL(it.thumbUrl);it.el.remove()});
+  state.items=[];refresh();
+});
+function refresh(){
+  var n=state.items.length;
+  $("#empty").hidden=n>0;
+  $("#clear").hidden=n===0;
+  var ready=state.items.filter(function(i){return i.kind!=="bad"}).length;
+  $("#run").disabled=state.busy||ready===0;
+  var done=state.items.filter(function(i){return i.status==="done"&&i.result});
+  $("#zip").hidden=done.length<2;
+  var o=0,s=0;done.forEach(function(i){o+=i.file.size;s+=i.result.blob.size});
+  $("#summary").innerHTML=done.length?"Saved <b>"+fmt(Math.max(0,o-s))+"</b> across "+done.length+(done.length===1?" file":" files")+(o>0?" ("+Math.round((1-s/o)*100)+"% smaller)":""):"";
+  syncSettingsUI();
+}
+
+/* ---------- image pipeline ---------- */
+function mk(w,h){var c=document.createElement("canvas");c.width=w;c.height=h;return c}
+function toBlob(c,type,q){return new Promise(function(res){c.toBlob(res,type,q)})}
+function scaleCanvas(src,sx,sy,sw,sh,w,h,opaque){
+  var cur=src,x=sx,y=sy,cw=sw,ch=sh;
+  while(cw>w*2||ch>h*2){
+    var nw=Math.max(w,Math.ceil(cw/2)),nh=Math.max(h,Math.ceil(ch/2));
+    var c=mk(nw,nh),g=c.getContext("2d");g.imageSmoothingQuality="high";
+    g.drawImage(cur,x,y,cw,ch,0,0,nw,nh);
+    cur=c;x=0;y=0;cw=nw;ch=nh;
+  }
+  var out=mk(w,h),g2=out.getContext("2d");
+  if(opaque){g2.fillStyle="#fff";g2.fillRect(0,0,w,h)}
+  g2.imageSmoothingQuality="high";
+  g2.drawImage(cur,x,y,cw,ch,0,0,w,h);
+  return out;
+}
+function grayscale(c){
+  var g=c.getContext("2d"),d=g.getImageData(0,0,c.width,c.height),p=d.data;
+  for(var i=0;i<p.length;i+=4){var v=(p[i]*0.299+p[i+1]*0.587+p[i+2]*0.114)|0;p[i]=p[i+1]=p[i+2]=v}
+  g.putImageData(d,0,0);
+}
+async function loadBitmap(file){
+  try{return await createImageBitmap(file,{imageOrientation:"from-image"})}
+  catch(e){
+    var url=URL.createObjectURL(file);var img=new Image();
+    await new Promise(function(res,rej){img.onload=res;img.onerror=function(){rej(new Error("This browser can't decode that image."))};img.src=url});
+    try{return await createImageBitmap(img)}finally{URL.revokeObjectURL(url)}
+  }
+}
+function computeDims(ow,oh,s){
+  var w=ow,h=oh,crop=null,sc;
+  if(s.W&&s.H){
+    if(s.fit==="stretch"){w=s.W;h=s.H}
+    else if(s.fit==="cover"){
+      w=s.W;h=s.H;sc=Math.max(w/ow,h/oh);
+      var cw=w/sc,ch=h/sc;crop={sx:(ow-cw)/2,sy:(oh-ch)/2,sw:cw,sh:ch};
+    }else{
+      sc=Math.min(s.W/ow,s.H/oh);if(s.noUp)sc=Math.min(sc,1);
+      w=Math.round(ow*sc);h=Math.round(oh*sc);
+    }
+  }else if(s.W||s.H){
+    sc=s.W?s.W/ow:s.H/oh;if(s.noUp)sc=Math.min(sc,1);
+    w=Math.round(ow*sc);h=Math.round(oh*sc);
+  }
+  return {w:Math.max(1,w),h:Math.max(1,h),crop:crop,exact:!!(s.W&&s.H&&s.fit!=="inside")};
+}
+async function hasAlpha(bmp){
+  var c=scaleCanvas(bmp,0,0,bmp.width,bmp.height,Math.min(64,bmp.width),Math.min(64,bmp.height),false);
+  var d=c.getContext("2d").getImageData(0,0,c.width,c.height).data;
+  for(var i=3;i<d.length;i+=4){if(d[i]<250)return true}
+  return false;
+}
+async function encodeTarget(canvas,type,target){
+  var lo=0.05,hi=0.98;
+  var top=await toBlob(canvas,type,hi);
+  if(top.size<=target)return {blob:top,q:hi,ok:true};
+  var bot=await toBlob(canvas,type,lo);
+  if(bot.size>target)return {blob:bot,q:lo,ok:false};
+  var best=bot,bq=lo;
+  for(var i=0;i<8;i++){
+    var mid=(lo+hi)/2,b=await toBlob(canvas,type,mid);
+    if(b.size<=target){best=b;bq=mid;lo=mid}else hi=mid;
+  }
+  return {blob:best,q:bq,ok:true};
+}
+async function encodePngTarget(base,target){
+  var top=await toBlob(base,"image/png");
+  if(top.size<=target)return {blob:top,canvas:base,ok:true};
+  var lo=0.05,hi=1,best=null,bc=null;
+  for(var i=0;i<9;i++){
+    var m=(lo+hi)/2,w=Math.max(1,Math.round(base.width*m)),h=Math.max(1,Math.round(base.height*m));
+    var c=scaleCanvas(base,0,0,base.width,base.height,w,h,false),b=await toBlob(c,"image/png");
+    if(b.size<=target){best=b;bc=c;lo=m}else hi=m;
+  }
+  if(best)return {blob:best,canvas:bc,ok:true};
+  var c2=scaleCanvas(base,0,0,base.width,base.height,Math.max(1,Math.round(base.width*0.05)),Math.max(1,Math.round(base.height*0.05)),false);
+  return {blob:await toBlob(c2,"image/png"),canvas:c2,ok:false};
+}
+function outName(name,ext){return name.replace(/\.[^.]+$/,"")+"-squeezed"+ext}
+
+/* ---------- filler data, used only to reach a minimum size ---------- */
+var CRC=(function(){var t=new Uint32Array(256);for(var n=0;n<256;n++){var c=n;for(var k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+function crc32(u,start){var c=start===undefined?0xFFFFFFFF:start;for(var i=0;i<u.length;i++)c=CRC[(c^u[i])&255]^(c>>>8);return start===undefined?(c^0xFFFFFFFF)>>>0:c}
+function padGoal(s){
+  var max=isFinite(s.target)?s.target:s.min*1.5;
+  return Math.floor(Math.min(max,s.min+Math.max(512,(max-s.min)*0.25)));
+}
+function padJpeg(b,need){
+  if(b[0]!==0xFF||b[1]!==0xD8)return null;
+  var i=2;
+  while(i+3<b.length&&b[i]===0xFF&&b[i+1]!==0xDA){i+=2+((b[i+2]<<8)|b[i+3])}
+  var parts=[b.subarray(0,i)],left=need;
+  while(left>0){
+    var dl=Math.min(65533,Math.max(0,left-4)),seg=new Uint8Array(4+dl);
+    seg[0]=0xFF;seg[1]=0xFE;seg[2]=(dl+2)>>8;seg[3]=(dl+2)&255;
+    parts.push(seg);left-=seg.length;
+  }
+  parts.push(b.subarray(i));return parts;
+}
+function padPng(b,need){
+  var dl=Math.max(0,need-12),ch=new Uint8Array(12+dl),dv=new DataView(ch.buffer);
+  dv.setUint32(0,dl);
+  ch[4]=0x7A;ch[5]=0x7A;ch[6]=0x5A;ch[7]=0x7A;
+  dv.setUint32(8+dl,crc32(ch.subarray(4,8+dl)));
+  var cut=b.length-12;
+  return [b.subarray(0,cut),ch,b.subarray(cut)];
+}
+function padWebp(b,need){
+  var dl=Math.max(0,need-8);dl+=dl&1;
+  var ch=new Uint8Array(8+dl),dv=new DataView(ch.buffer);
+  ch[0]=0x4A;ch[1]=0x55;ch[2]=0x4E;ch[3]=0x4B;dv.setUint32(4,dl,true);
+  var head=new Uint8Array(b.subarray(0,12));
+  new DataView(head.buffer).setUint32(4,b.length+ch.length-8,true);
+  return [head,b.subarray(12),ch];
+}
+async function padBlob(blob,type,goal){
+  var b=new Uint8Array(await blob.arrayBuffer()),need=goal-b.length;
+  if(need<=0)return blob;
+  var parts=type==="image/jpeg"?padJpeg(b,need):type==="image/png"?padPng(b,need):padWebp(b,need);
+  return parts?new Blob(parts,{type:type}):blob;
+}
+async function padPdf(bytes,goal){
+  var L=Math.max(1,goal-bytes.length),out=bytes;
+  for(var i=0;i<3;i++){
+    var d=await PDFLib.PDFDocument.load(bytes,{updateMetadata:false});
+    var st=d.context.stream(new Uint8Array(L));
+    d.catalog.set(PDFLib.PDFName.of("SqueezePad"),d.context.register(st));
+    out=await d.save({useObjectStreams:true});
+    if(out.length>=goal&&out.length<=goal+256)break;
+    L=Math.max(1,L+(goal-out.length));
+  }
+  return out;
+}
+
+async function squeezeImage(it,s){
+  var file=it.file,orig=file.size;
+  var src=await loadBitmap(file);
+  var ow=src.width,oh=src.height;
+  var d=computeDims(ow,oh,s);
+  var sameDims=(d.w===ow&&d.h===oh&&!d.crop);
+  var fmtSel=s.format;
+  if(fmtSel==="auto"){
+    var alpha=/png|webp|gif|avif|bmp/i.test(file.type||file.name)?await hasAlpha(src):false;
+    fmtSel=alpha?"webp":"jpeg";
+  }
+  if(fmtSel==="webp"&&!supportsWebp)fmtSel=(s.format==="auto")?"png":"jpeg";
+  var type=fmtSel==="png"?"image/png":fmtSel==="webp"?"image/webp":"image/jpeg";
+  var ext=fmtSel==="png"?".png":fmtSel==="webp"?".webp":".jpg";
+  var opaque=type==="image/jpeg";
+
+  if(s.mode==="size"&&orig<=s.target&&orig>=s.min&&sameDims&&s.format==="auto"&&!s.gray){
+    return {blob:file,name:file.name,w:ow,h:oh,kept:true,tone:"good",note:"Already inside the size range. Kept as it is."};
+  }
+  it.msg="Resizing…";it.frac=0.2;updateRow(it);await tick();
+
+  var c=d.crop?d.crop:{sx:0,sy:0,sw:ow,sh:oh};
+  var base=scaleCanvas(src,c.sx,c.sy,c.sw,c.sh,d.w,d.h,opaque);
+  if(s.gray)grayscale(base);
+  if(src.close)src.close();
+
+  var blob,notes=[],reached=true,fw=d.w,fh=d.h,qUsed=null,finalCanvas=base;
+  it.msg="Finding the best quality…";it.frac=0.55;updateRow(it);await tick();
+
+  if(s.mode==="quality"){
+    blob=type==="image/png"?await toBlob(base,type):await toBlob(base,type,s.quality);
+    qUsed=s.quality;
+  }else if(type==="image/png"){
+    var rp=await encodePngTarget(base,s.target);
+    blob=rp.blob;reached=rp.ok;fw=rp.canvas.width;fh=rp.canvas.height;finalCanvas=rp.canvas;
+    if(fw!==d.w)notes.push("PNG is lossless, so dimensions were reduced to reach the size. JPEG or WebP keep more detail.");
+  }else{
+    var shrinkOk=s.shrink&&!d.exact;
+    var res=await encodeTarget(base,type,s.target);
+    var cv=base,scale=1;
+    while(!res.ok&&shrinkOk&&Math.min(cv.width,cv.height)>24){
+      scale*=0.85;
+      cv=scaleCanvas(base,0,0,base.width,base.height,Math.max(1,Math.round(d.w*scale)),Math.max(1,Math.round(d.h*scale)),false);
+      res=await encodeTarget(cv,type,s.target);
+      it.frac=Math.min(0.95,it.frac+0.03);updateRow(it);await tick();
+    }
+    blob=res.blob;reached=res.ok;qUsed=res.q;fw=cv.width;fh=cv.height;finalCanvas=cv;
+    if(!res.ok){
+      notes.push("Smallest possible at these dimensions is "+fmt(blob.size)+". "+(d.exact?"Lower the width and height, or raise the target.":"Raise the target or allow shrinking."));
+    }
+  }
+  if(blob.type&&blob.type!==type&&type==="image/webp"){
+    blob=await toBlob(base,"image/jpeg",qUsed||0.8);ext=".jpg";
+  }
+  if(s.mode==="size"&&s.min>0&&blob.size<s.min){
+    if(type!=="image/png"){
+      var b1=await toBlob(finalCanvas,type,1);
+      if(b1.size>blob.size&&b1.size<=s.target){blob=b1;qUsed=1}
+    }
+    if(blob.size<s.min){
+      if(s.pad){
+        var before=blob.size;
+        blob=await padBlob(blob,type,padGoal(s));
+        notes.push("Added "+fmt(blob.size-before)+" of filler data to reach the minimum. Picture detail is unchanged.");
+      }else{
+        reached=false;
+        notes.push("Below the minimum of "+fmt(s.min)+". Turn on enlarging to reach it.");
+      }
+    }
+  }
+  if(sameDims&&fw===ow&&fh===oh&&blob.size>=orig&&!s.gray&&s.format==="auto"&&(s.mode!=="size"||orig>=s.min)){
+    return {blob:file,name:file.name,w:ow,h:oh,kept:true,tone:"warn",note:"Re-encoding would not make this smaller. Original kept."};
+  }
+  var info=fw+"×"+fh+" px"+(qUsed?" · "+(type==="image/webp"?"WebP":"JPEG")+" quality "+Math.round(qUsed*100):" · PNG");
+  var note=info+(notes.length?" · "+notes.join(" "):"");
+  if(blob.size>orig&&!notes.length)note=info+". Larger than the original because of your settings.";
+  return {blob:blob,name:outName(file.name,ext),w:fw,h:fh,kept:false,tone:reached?(blob.size>orig?"warn":"good"):"warn",note:note};
+}
+
+/* ---------- PDF pipeline ---------- */
+var LADDER=[[300,.95],[250,.92],[200,.85],[170,.80],[150,.78],[130,.74],[120,.70],[110,.66],[100,.62],[90,.58],[80,.54],[72,.50],[64,.46],[56,.42],[48,.38],[40,.34]];
+var PAGE_PTS={a4:[595.28,841.89],a5:[419.53,595.28],a3:[841.89,1190.55],letter:[612,792]};
+function outPts(w,h,size){
+  if(size==="orig")return [w,h];
+  var b=PAGE_PTS[size],bw=b[0],bh=b[1];
+  if(w>h){var t=bw;bw=bh;bh=t}
+  var f=Math.min(bw/w,bh/h);
+  return [w*f,h*f];
+}
+function pdfProblem(e){
+  var m=(e&&e.message)||String(e);
+  if(e&&e.name==="PasswordException")return "This PDF is password protected. Remove the password first.";
+  if(/encrypt/i.test(m))return "This PDF is encrypted, so it can't be changed here.";
+  return "Couldn't read this PDF ("+m+").";
+}
+async function squeezePdf(it,s){
+  if(!hasPdfJs||!hasPdfLib)throw new Error("The PDF engine didn't load. Check your connection and reload the page.");
+  var file=it.file,orig=file.size,buf=await file.arrayBuffer();
+  if(s.mode==="size"&&orig<=s.target&&orig>=s.min&&s.pageSize==="orig"&&!s.gray){
+    return {blob:file,name:file.name,kept:true,tone:"good",note:"Already inside the size range. Kept as it is."};
+  }
+  async function reachMin(bytes){
+    if(s.mode!=="size"||!(s.min>0)||bytes.length>=s.min)return {bytes:bytes,note:""};
+    if(!s.pad)return {bytes:bytes,note:" Below the minimum of "+fmt(s.min)+". Turn on enlarging to reach it.",low:true};
+    var b4=bytes.length,o=await padPdf(bytes,padGoal(s));
+    return {bytes:o,note:" Added "+fmt(o.length-b4)+" of filler data to reach the minimum."};
+  }
+  var redraw=s.pdfMode==="raster"||(s.pdfMode==="auto"&&(s.pageSize!=="orig"||s.gray||s.mode==="quality"));
+  var light=null,lightErr=null;
+  if(!redraw){
+    it.msg="Re-saving without touching the text…";it.frac=0.2;updateRow(it);await tick();
+    try{
+      var ld=await PDFLib.PDFDocument.load(buf.slice(0),{updateMetadata:false});
+      light=await ld.save({useObjectStreams:true});
+    }catch(e){lightErr=e}
+    if(s.pdfMode==="text"){
+      if(!light)throw new Error(pdfProblem(lightErr));
+      if(light.length>=orig&&(s.mode!=="size"||orig>=s.min))return {blob:file,name:file.name,kept:true,tone:"warn",note:"Nothing more to trim without redrawing the pages. Original kept. Try the Maximum method."};
+      var rm=await reachMin(light);
+      var over=s.mode==="size"&&rm.bytes.length>s.target;
+      return {blob:new Blob([rm.bytes],{type:"application/pdf"}),name:outName(file.name,".pdf"),tone:(over||rm.low)?"warn":"good",note:"Text stays selectable."+(over?" Target not reached. Try the Maximum method.":"")+rm.note};
+    }
+    if(light&&s.mode==="size"&&light.length<=s.target&&light.length<orig){
+      var rm2=await reachMin(light);
+      return {blob:new Blob([rm2.bytes],{type:"application/pdf"}),name:outName(file.name,".pdf"),tone:rm2.low?"warn":"good",note:"Text stays selectable. Re-saved without redrawing."+rm2.note};
+    }
+  }
+  var pdf;
+  try{pdf=await pdfjsLib.getDocument({data:new Uint8Array(buf.slice(0)),isEvalSupported:false,useSystemFonts:true}).promise}
+  catch(e){throw new Error(pdfProblem(e))}
+  var n=pdf.numPages,geo=[];
+  for(var i=1;i<=n;i++){
+    var pg=await pdf.getPage(i),vp=pg.getViewport({scale:1}),o=outPts(vp.width,vp.height,s.pageSize);
+    geo.push({w:vp.width,h:vp.height,ow:o[0],oh:o[1]});
+  }
+  var cache={},pass=0;
+  async function trial(idx){
+    if(cache[idx])return cache[idx];
+    var dpi=LADDER[idx][0],q=LADDER[idx][1],pages=[],total=0;
+    pass++;
+    for(var p=1;p<=n;p++){
+      it.msg="Pass "+pass+" · page "+p+" of "+n;it.frac=Math.max(0.05,(p-1)/n);updateRow(it);await tick();
+      var page=await pdf.getPage(p),g=geo[p-1];
+      var scale=(g.ow/g.w)*(dpi/72);
+      var vp2=page.getViewport({scale:scale});
+      var cw=Math.max(1,Math.floor(vp2.width)),ch=Math.max(1,Math.floor(vp2.height));
+      if(cw*ch>16000000){var f=Math.sqrt(16000000/(cw*ch));vp2=page.getViewport({scale:scale*f});cw=Math.max(1,Math.floor(vp2.width));ch=Math.max(1,Math.floor(vp2.height))}
+      var c=mk(cw,ch),cx=c.getContext("2d");cx.fillStyle="#fff";cx.fillRect(0,0,cw,ch);
+      await page.render({canvasContext:cx,viewport:vp2}).promise;
+      if(s.gray)grayscale(c);
+      var b=await toBlob(c,"image/jpeg",q);
+      var bytes=new Uint8Array(await b.arrayBuffer());
+      pages.push({bytes:bytes,w:g.ow,h:g.oh});total+=bytes.length;
+      c.width=0;c.height=0;page.cleanup();
+    }
+    cache[idx]={pages:pages,total:total};
+    return cache[idx];
+  }
+  async function assemble(t){
+    var doc=await PDFLib.PDFDocument.create();
+    for(var k=0;k<t.pages.length;k++){
+      var pg=t.pages[k],img=await doc.embedJpg(pg.bytes),page=doc.addPage([pg.w,pg.h]);
+      page.drawImage(img,{x:0,y:0,width:pg.w,height:pg.h});
+    }
+    return await doc.save({useObjectStreams:true});
+  }
+  var ovh=1200+n*260,idx;
+  if(s.mode==="size"){
+    var lo=0,hi=LADDER.length-1;
+    while(lo<hi){
+      var mid=(lo+hi)>>1,t=await trial(mid);
+      if(t.total+ovh<=s.target)hi=mid;else lo=mid+1;
+    }
+    idx=lo;
+  }else{
+    idx=Math.round((95-Math.round(s.quality*100))/85*(LADDER.length-1));
+    idx=Math.max(0,Math.min(LADDER.length-1,idx));
+  }
+  it.msg="Building the PDF…";it.frac=0.97;updateRow(it);await tick();
+  var out=await assemble(await trial(idx));
+  while(s.mode==="size"&&out.length>s.target&&idx<LADDER.length-1){idx++;out=await assemble(await trial(idx))}
+  pdf.destroy();
+  var reached=s.mode!=="size"||out.length<=s.target;
+  var note="Pages redrawn at "+LADDER[idx][0]+" DPI, JPEG quality "+Math.round(LADDER[idx][1]*100)+". Text is no longer selectable.";
+  var tone=reached?"good":"warn";
+  if(!reached)note="Smallest possible is "+fmt(out.length)+" even at the lowest setting. "+note;
+  var useLight=light&&light.length<out.length&&(s.mode!=="size"||light.length<=s.target||!reached);
+  if(useLight){out=light;note="Text stays selectable. Redrawing would have been larger.";tone=(s.target&&light.length>s.target)?"warn":"good"}
+  var rm3=await reachMin(out);
+  out=rm3.bytes;note+=rm3.note;if(rm3.low)tone="warn";
+  if(out.length>=orig&&(s.mode!=="size"||orig>=s.min)){return {blob:file,name:file.name,kept:true,tone:"warn",note:"This PDF is already compact. Original kept."}}
+  return {blob:new Blob([out],{type:"application/pdf"}),name:outName(file.name,".pdf"),tone:tone,note:note};
+}
+
+/* ---------- run ---------- */
+async function runAll(){
+  if(state.busy)return;
+  var s=readSettings();if(!s)return;
+  var todo=state.items.filter(function(i){return i.kind!=="bad"});
+  if(!todo.length)return;
+  state.busy=true;$("#run").disabled=true;$("#run").textContent="Squeezing…";
+  for(var k=0;k<todo.length;k++){
+    var it=todo[k];
+    it.status="working";it.result=null;it.msg="Starting…";it.frac=0.04;updateRow(it);await tick();
+    try{
+      it.result=it.kind==="pdf"?await squeezePdf(it,s):await squeezeImage(it,s);
+      it.status="done";
+    }catch(e){
+      it.status="error";it.error=(e&&e.message)||"Something went wrong with this file.";
+    }
+    updateRow(it);refresh();await tick();
+  }
+  state.busy=false;$("#run").textContent="Squeeze files";refresh();
+}
+$("#run").addEventListener("click",runAll);
+
+/* ---------- saving ---------- */
+async function saveBlob(name,blob){
+  if(downloads){
+    try{await downloads.save({filename:name,data:blob});toast("Saved "+name);return}
+    catch(e){
+      if(e&&e.code==="declined")return;
+      if(e&&e.code==="rate_limited"){toast("Another save is waiting for your answer. Finish that one first.");return}
+      toast("That file couldn't be saved from here.");return;
+    }
+  }
+  try{
+    var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(function(){URL.revokeObjectURL(a.href)},4000);
+  }catch(e){toast("Saving isn't available in this view. Open the page in claude.ai to save files.")}
+}
+function saveItem(it){if(it.result)saveBlob(it.result.name,it.result.blob)}
+
+/* ZIP (stored, no compression: the files are already compressed) */
+async function makeZip(entries){
+  var enc=new TextEncoder(),parts=[],cds=[],off=0,cdSize=0,d=new Date();
+  var time=(d.getHours()<<11)|(d.getMinutes()<<5)|(d.getSeconds()>>1);
+  var date=((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate();
+  for(var i=0;i<entries.length;i++){
+    var e=entries[i],data=new Uint8Array(await e.blob.arrayBuffer()),nm=enc.encode(e.name),crc=crc32(data);
+    var h=new DataView(new ArrayBuffer(30));
+    h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint16(6,0x0800,true);h.setUint16(8,0,true);
+    h.setUint16(10,time,true);h.setUint16(12,date,true);h.setUint32(14,crc,true);
+    h.setUint32(18,data.length,true);h.setUint32(22,data.length,true);h.setUint16(26,nm.length,true);h.setUint16(28,0,true);
+    parts.push(h.buffer,nm,data);
+    var c=new DataView(new ArrayBuffer(46));
+    c.setUint32(0,0x02014b50,true);c.setUint16(4,20,true);c.setUint16(6,20,true);c.setUint16(8,0x0800,true);c.setUint16(10,0,true);
+    c.setUint16(12,time,true);c.setUint16(14,date,true);c.setUint32(16,crc,true);
+    c.setUint32(20,data.length,true);c.setUint32(24,data.length,true);c.setUint16(28,nm.length,true);
+    c.setUint32(42,off,true);
+    cds.push(c.buffer,nm);cdSize+=46+nm.length;off+=30+nm.length+data.length;
+  }
+  var end=new DataView(new ArrayBuffer(22));
+  end.setUint32(0,0x06054b50,true);end.setUint16(8,entries.length,true);end.setUint16(10,entries.length,true);
+  end.setUint32(12,cdSize,true);end.setUint32(16,off,true);
+  return new Blob(parts.concat(cds,[end.buffer]),{type:"application/zip"});
+}
+$("#zip").addEventListener("click",async function(){
+  var seen={},entries=[];
+  state.items.forEach(function(it){
+    if(it.status!=="done"||!it.result)return;
+    var nm=it.result.name,base=nm,n=1;
+    while(seen[nm]){n++;nm=base.replace(/(\.[^.]+)?$/,"-"+n+"$1")}
+    seen[nm]=1;entries.push({name:nm,blob:it.result.blob});
+  });
+  if(!entries.length)return;
+  saveBlob("squeezed-files.zip",await makeZip(entries));
+});
+
+/* ---------- preview ---------- */
+var ovUrl=null;
+async function openPreview(it){
+  var body=$("#ovBody");body.innerHTML="";
+  if(ovUrl){URL.revokeObjectURL(ovUrl);ovUrl=null}
+  var blob=(it.status==="done"&&it.result)?it.result.blob:it.file;
+  var cap=(it.status==="done"&&it.result?"After · ":"Original · ")+fmt(blob.size);
+  if(it.kind==="image"){
+    ovUrl=URL.createObjectURL(blob);var im=new Image();im.src=ovUrl;im.alt="Preview of "+it.file.name;body.appendChild(im);
+  }else if(it.kind==="pdf"&&hasPdfJs){
+    try{
+      var pdf=await pdfjsLib.getDocument({data:new Uint8Array(await blob.arrayBuffer()),isEvalSupported:false,useSystemFonts:true}).promise;
+      var page=await pdf.getPage(1),vp0=page.getViewport({scale:1}),vp=page.getViewport({scale:Math.min(2,900/vp0.width)});
+      var c=mk(Math.ceil(vp.width),Math.ceil(vp.height)),g=c.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,c.width,c.height);
+      await page.render({canvasContext:g,viewport:vp}).promise;body.appendChild(c);cap+=" · page 1 of "+pdf.numPages;pdf.destroy();
+    }catch(e){return}
+  }else return;
+  $("#ovCap").textContent=it.file.name+" · "+cap;
+  $("#ov").hidden=false;$("#ovClose").focus();
+}
+function closePreview(){$("#ov").hidden=true;$("#ovBody").innerHTML="";if(ovUrl){URL.revokeObjectURL(ovUrl);ovUrl=null}}
+$("#ovClose").addEventListener("click",closePreview);
+$("#ov").addEventListener("click",function(e){if(e.target===$("#ov"))closePreview()});
+document.addEventListener("keydown",function(e){if(e.key==="Escape"&&!$("#ov").hidden)closePreview()});
+
+/* ---------- drop, pick, paste ---------- */
+var drop=$("#drop");
+["dragenter","dragover"].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.add("over")})});
+["dragleave","drop"].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.remove("over")})});
+drop.addEventListener("drop",function(e){if(e.dataTransfer&&e.dataTransfer.files.length)addFiles(e.dataTransfer.files)});
+$("#picker").addEventListener("change",function(e){if(e.target.files.length)addFiles(e.target.files);e.target.value=""});
+document.addEventListener("paste",function(e){
+  var fs=e.clipboardData&&e.clipboardData.files;
+  if(fs&&fs.length){addFiles(fs)}
+});
+window.addEventListener("dragover",function(e){e.preventDefault()});
+window.addEventListener("drop",function(e){e.preventDefault()});
+
+syncSettingsUI();refresh();
+})();
+</script>
+
+</body></html>
